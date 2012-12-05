@@ -30,8 +30,14 @@ import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+import android.view.MotionEvent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.content.Context;
 
-public class ClientActivity extends Activity {
+public class ClientActivity extends Activity implements SensorEventListener {
 
 	private static final String TAG = "DroidmoteClient";
 
@@ -39,6 +45,7 @@ public class ClientActivity extends Activity {
 	private Handler mCommandHandler;
 	private static final int MOUSE_EVENT = 1;
 	private static final int KEY_EVENT = 2;
+	private static final int MOTION_EVENT = 3;
 	private static final int CONNECT_SERVER_EVENT = 10;
     // private static final int DISCONNECT_SERVER_EVENT = 11;
 	private static final int FINISH_EVENT = 99;
@@ -52,7 +59,7 @@ public class ClientActivity extends Activity {
 	public static final String TCP_DATA_PORT = "port";
 
 	/** The Constant DEFAULT_IP. */
-	public static final String TCP_DEFAULT_IP = "192.168.1.7";
+	public static final String TCP_DEFAULT_IP = "192.168.0.1";
 
 	/** The Constant DEFAULT_PORT. */
 	public static final int TCP_DEFAULT_PORT = 44522;
@@ -79,10 +86,15 @@ public class ClientActivity extends Activity {
 		private void handleCommand(Intent intent) {
 			String type = intent.getStringExtra("type");
 			String value = intent.getStringExtra("value");
+			String action = intent.getStringExtra("action");
+			String ts = intent.getStringExtra("timestamp");
+			
 			// Log.d(TAG, "type: " + type + ", value: " + value);
-			String command = type + ":" + value;
+			String command = type + ":" + value + ":" + action + ":" + ts;
 			Log.d(TAG, "==> : Execute command: " + command);
-			mSendCommandTCP.execute(command);
+			if(mSendCommandTCP != null){
+				mSendCommandTCP.execute(command);
+			}
 			Log.d(TAG, "<== Execute command: " + command);
 		}
 	
@@ -97,7 +109,9 @@ public class ClientActivity extends Activity {
 				    mUIHandler.post(new ServerConnectRunnable());
 				}
 				break;
-
+			case MOTION_EVENT:
+				handleCommand((Intent)msg.obj);
+				break;
 			case FINISH_EVENT:
 				Log.d(TAG, "end of command thread");
 				this.getLooper().quit();
@@ -154,6 +168,7 @@ public class ClientActivity extends Activity {
 				// s = new Socket(IP, port);
 	
 				msg += "\n";
+				Log.d(TAG,"sending msg to socket out");
 				out.write(msg.getBytes());
 				// measureTime("----------------written");
 	
@@ -177,7 +192,7 @@ public class ClientActivity extends Activity {
 
 	private class ServerDisconnectRunnable implements Runnable {
 
-        @Override
+        //@Override
         public void run() {
             disconnectServer();
         }
@@ -186,7 +201,7 @@ public class ClientActivity extends Activity {
 
 	private class ServerConnectRunnable implements Runnable {
 
-        @Override
+        //@Override
         public void run() {
             updateConnectionState(true);
         }
@@ -197,10 +212,27 @@ public class ClientActivity extends Activity {
 	    mConnectBtn.setEnabled(!connected);
 	    mDisconnectBtn.setEnabled(connected);
 	}
+	public boolean onTouchEvent(MotionEvent ev)
+	{
+		Intent i = new Intent();
+		i.putExtra("type","touch");
+		i.putExtra("value",Float.toString(ev.getRawX())+":"+Float.toString(ev.getRawY()));
+		i.putExtra("action",Integer.toString(ev.getAction()));
+		i.putExtra("timestamp", Long.toString(ev.getEventTime()));
+		Message.obtain(mCommandHandler, MOTION_EVENT, i).sendToTarget();
+		return true;
+	}
+	
+	public void onSensorChanged(SensorEvent ev) {
+		
+	}
+	public void onSensorAccuracyChanged(Sensor sensor, int accuracy) {
+		
+	}
 	
 	private View.OnClickListener mClickButton = new View.OnClickListener() {
 		
-		@Override
+		//@Override
 		public void onClick(View v) {
 			if (v == mConnectBtn) {
 				Message.obtain(mCommandHandler, CONNECT_SERVER_EVENT).sendToTarget();
@@ -209,16 +241,20 @@ public class ClientActivity extends Activity {
 			} else {
 				Intent i = new Intent();
 				i.putExtra("type", "key");
+				
 				if (v == mUpBtn) {
-					i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_UP));
+					i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_UP)+":0");
 				} else if (v == mDownBtn) {
-					i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_DOWN));
+					i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_DOWN)+":0");
 				} else if (v == mLeftBtn) {
-                    i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_LEFT));
+                    i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_LEFT)+":0");
 				} else if (v == mRightBtn) {
-                    i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_RIGHT));
-				}
+                    i.putExtra("value", Integer.toString(KeyEvent.KEYCODE_DPAD_RIGHT)+":0");
+				} 
+				i.putExtra("action", "0");
+				i.putExtra("timestamp", "0");
 				Message.obtain(mCommandHandler, KEY_EVENT, i).sendToTarget();
+				
 			}
 		}
 	};
@@ -250,8 +286,10 @@ public class ClientActivity extends Activity {
 	}
 
 	private void disconnectServer() {
-        mSendCommandTCP.close();
-        mSendCommandTCP = null;
+		if(mSendCommandTCP != null){
+			mSendCommandTCP.close();
+			mSendCommandTCP = null;
+		}
         updateConnectionState(false);
 	}
 	
@@ -277,6 +315,12 @@ public class ClientActivity extends Activity {
 		mCommandThread= new HandlerThread("CommandHandler", android.os.Process.THREAD_PRIORITY_BACKGROUND);
 		mCommandThread.start();
 		mCommandHandler = new CommandHandler(mCommandThread.getLooper());
+
+		SensorManager manager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+		Sensor accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+		if(!manager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)){
+			Log.d(TAG,"Error, could not register sensor listener");
+		}
     }
 
     @Override
@@ -334,7 +378,7 @@ public class ClientActivity extends Activity {
 		Button save = (Button) mSettingsDialog.findViewById(R.id.ok);
 		save.setOnClickListener(new OnClickListener() {
 	
-			@Override
+			//@Override
 			public void onClick(View v) {
 				int portInt = TCP_DEFAULT_PORT;
 				try {
@@ -361,7 +405,7 @@ public class ClientActivity extends Activity {
 		Button cancel = (Button) mSettingsDialog.findViewById(R.id.cancel);
 		cancel.setOnClickListener(new OnClickListener() {
 	
-			@Override
+			//@Override
 			public void onClick(View v) {
 				mSettingsDialog.dismiss();
 				//  this.removeDialog(SuperActivity.DIALOG_SETTINGS);
@@ -370,7 +414,7 @@ public class ClientActivity extends Activity {
 	
 		mSettingsDialog.setOnCancelListener(new OnCancelListener() {
 	
-			@Override
+			//@Override
 			public void onCancel(DialogInterface dialog) {
 				// this.removeDialog(DIALOG_SETTINGS);
 				mSettingsDialog.dismiss();
@@ -378,5 +422,9 @@ public class ClientActivity extends Activity {
 		});
 	
 		return mSettingsDialog;
+	}
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+		// TODO Auto-generated method stub
+		
 	}
 }
