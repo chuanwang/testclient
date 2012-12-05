@@ -1,0 +1,13 @@
+bin/
+gen/
+assets
+*~
+*.o
+R.java
+cscope.*
+tags
+*.swp
+.project
+project.properties
+.classpath
+lint.xml
